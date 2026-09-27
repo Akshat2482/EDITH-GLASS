@@ -10,9 +10,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class GroqClient {
-    suspend fun ask(question: String): Result<String> = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GROQ_API_KEY.trim()
-        if (apiKey.isBlank() || apiKey == "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") {
+    // apiKey comes from ApiKeyManager (encrypted on-device storage) — never
+    // from BuildConfig / local.properties, so it's never baked into source.
+    suspend fun ask(question: String, apiKey: String): Result<String> = withContext(Dispatchers.IO) {
+        val key = apiKey.trim()
+        if (key.isBlank()) {
             return@withContext Result.failure(
                 IllegalStateException("Groq API key is not configured")
             )
@@ -26,7 +28,7 @@ class GroqClient {
                 connectTimeout = 15_000
                 readTimeout = 60_000
                 doOutput = true
-                setRequestProperty("Authorization", "Bearer $apiKey")
+                setRequestProperty("Authorization", "Bearer $key")
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json")
             }
