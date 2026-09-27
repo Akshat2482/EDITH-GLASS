@@ -10,7 +10,12 @@
       SCL         : GPIO 9
 
   Function:
-    - Boots with a futuristic "EDITH" HUD animation.
+    - Boots with a cinematic "EDITH" HUD sequence: power-on glitch burst,
+      materializing grid, a scrambled-text signal-lock decode of "EDITH",
+      a rotating radar sweep, and a spinning targeting ring before settling
+      into the idle HUD.
+    - The idle HUD is no longer a static image — a marker continuously
+      orbits the reticle so the glasses always look "alive", not frozen.
     - Advertises as a BLE peripheral named "EDITH-GLASSES".
     - Receives chunked UTF-8 text messages from the companion Android app.
     - Renders text inside a HUD frame, word-wrapped, then MIRRORS the whole
@@ -35,6 +40,13 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+
+#include <math.h>
+#include <string.h>
+
+#ifndef DEG_TO_RAD
+#define DEG_TO_RAD 0.017453292519943295
+#endif
 
 // ----------------------------------------------------------------------------
 // DISPLAY CONFIG
@@ -200,11 +212,6 @@ void setupBLE() {
 // ----------------------------------------------------------------------------
 // HUD PRIMITIVES
 // ----------------------------------------------------------------------------
-void drawCornerBrackets(int inset = 2, int len = 8) {
-  // Intentionally empty. EDITH's HUD uses reticles, rings and scan marks,
-  // never corner brackets.
-}
-
 void drawStatusBar(const char *label) {
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
@@ -239,6 +246,25 @@ void wrapText(const String &text, int maxCharsPerLine, String outLines[], int &l
     outLines[lineCount++] = text.substring(start, breakAt);
     start = breakAt;
     while (start < len && text.charAt(start) == ' ') start++;
+  }
+}
+
+// Approximates an arc as a small chain of line segments using sin/cos —
+// Adafruit_GFX has no native arc primitive.
+void drawArcApprox(int cx, int cy, int r, float startDeg, float endDeg, int steps = 6) {
+  float startRad = startDeg * DEG_TO_RAD;
+  float endRad = endDeg * DEG_TO_RAD;
+  float stepRad = (endRad - startRad) / steps;
+
+  int prevX = cx + (int)(r * cos(startRad));
+  int prevY = cy + (int)(r * sin(startRad));
+  for (int i = 1; i <= steps; i++) {
+    float a = startRad + stepRad * i;
+    int x = cx + (int)(r * cos(a));
+    int y = cy + (int)(r * sin(a));
+    display.drawLine(prevX, prevY, x, y, SSD1306_WHITE);
+    prevX = x;
+    prevY = y;
   }
 }
 
@@ -320,10 +346,12 @@ void displayMirroredText(const String &text) {
   renderReceivedText(text);
 }
 
-void showIdleHUD() {
+// Draws one frame of the idle HUD at a given orbit angle. Called
+// continuously from loop() while idle so the reticle is never a frozen
+// static image — a single marker keeps orbiting it.
+void drawIdleHUDFrame(float angleDeg) {
   display.clearDisplay();
 
-  // Minimal EDITH-style reticle: no corner brackets.
   int cx = SCREEN_WIDTH / 2;
   int cy = 35;
 
@@ -336,6 +364,17 @@ void showIdleHUD() {
   display.drawFastVLine(cx, cy - 27, 10, SSD1306_WHITE);
   display.drawFastVLine(cx, cy + 18, 10, SSD1306_WHITE);
 
+  // Orbiting marker + a short trailing tick just behind it.
+  float rad = angleDeg * DEG_TO_RAD;
+  int tx = cx + (int)(20 * cos(rad));
+  int ty = cy + (int)(20 * sin(rad));
+  display.fillCircle(tx, ty, 1, SSD1306_WHITE);
+
+  float trailRad = (angleDeg - 18.0) * DEG_TO_RAD;
+  int trailX = cx + (int)(20 * cos(trailRad));
+  int trailY = cy + (int)(20 * sin(trailRad));
+  display.drawPixel(trailX, trailY, SSD1306_WHITE);
+
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.setCursor(4, 2);
@@ -346,45 +385,156 @@ void showIdleHUD() {
   pushMirrored();
 }
 
+void showIdleHUD() {
+  drawIdleHUDFrame(0);
+}
+
+// ----------------------------------------------------------------------------
+// BOOT ANIMATION EFFECTS
+// ----------------------------------------------------------------------------
+
+// Power-on glitch burst: bursts of random noise pixels, like the display
+// is acquiring signal before it can render anything coherent.
+void glitchPowerOn() {
+  for (int burst = 0; burst < 3; burst++) {
+    display.clearDisplay();
+    int noisePixels = 220 - burst * 45;
+    for (int i = 0; i < noisePixels; i++) {
+      display.drawPixel(random(SCREEN_WIDTH), random(SCREEN_HEIGHT), SSD1306_WHITE);
+    }
+    pushMirrored();
+    delay(35);
+
+    display.clearDisplay();
+    pushMirrored();
+    delay(20);
+  }
+}
+
+// A sparse grid of points and short connecting lines "constructs" itself
+// across the screen in a couple of passes — reads as the HUD's overlay
+// materializing rather than just appearing.
+void materializeHexGrid() {
+  const int cellW = 14;
+  const int cellH = 12;
+
+  for (int pass = 0; pass < 3; pass++) {
+    for (int row = 0; (row * cellH) < SCREEN_HEIGHT; row++) {
+      for (int col = 0; (col * cellW) < SCREEN_WIDTH; col++) {
+        if (random(100) < 55) continue; // sparse — not every cell every pass
+        int px = col * cellW + (row % 2) * (cellW / 2);
+        int py = row * cellH;
+        display.drawPixel(px, py, SSD1306_WHITE);
+        if (pass > 0) {
+          display.drawLine(px, py, px + cellW / 2, py + cellH / 2, SSD1306_WHITE);
+        }
+      }
+    }
+    pushMirrored();
+    delay(60);
+  }
+}
+
+// Classic "signal lock" decode: target's letters start scrambled and
+// resolve left-to-right, one character at a time, like a cipher breaking.
+void scrambleRevealText(const char *target, int y, int textSize, unsigned long durationMs) {
+  int len = strlen(target);
+  if (len > 15) len = 15;
+
+  char buffer[16];
+  strncpy(buffer, target, len);
+  buffer[len] = '\0';
+
+  static const char scrambleChars[] = "!<>-_/[]{}=+*^?#0123456789";
+  const int scrambleLen = strlen(scrambleChars);
+
+  unsigned long start = millis();
+  int resolvedCount = 0;
+
+  while (resolvedCount < len) {
+    for (int i = resolvedCount; i < len; i++) {
+      buffer[i] = scrambleChars[random(scrambleLen)];
+    }
+
+    display.clearDisplay();
+    display.setTextSize(textSize);
+    display.setTextColor(SSD1306_WHITE);
+    int16_t x1, y1; uint16_t w, h;
+    display.getTextBounds(target, 0, 0, &x1, &y1, &w, &h);
+    display.setCursor((SCREEN_WIDTH - w) / 2, y);
+    display.print(buffer);
+    pushMirrored();
+    delay(35);
+
+    unsigned long perCharDeadline = (unsigned long)(resolvedCount + 1) * (durationMs / len);
+    if (millis() - start > perCharDeadline) {
+      buffer[resolvedCount] = target[resolvedCount];
+      resolvedCount++;
+    }
+  }
+
+  display.clearDisplay();
+  display.setTextSize(textSize);
+  display.setTextColor(SSD1306_WHITE);
+  int16_t x1, y1; uint16_t w, h;
+  display.getTextBounds(target, 0, 0, &x1, &y1, &w, &h);
+  display.setCursor((SCREEN_WIDTH - w) / 2, y);
+  display.print(target);
+  pushMirrored();
+}
+
+// A radar-style line sweeps around the reticle center, with a short
+// trailing tick behind it, for `cycles` full rotations.
+void radarSweep(int cx, int cy, int r, int cycles) {
+  for (int c = 0; c < cycles; c++) {
+    for (int deg = 0; deg < 360; deg += 12) {
+      display.clearDisplay();
+
+      display.drawCircle(cx, cy, r, SSD1306_WHITE);
+      display.drawCircle(cx, cy, r / 2, SSD1306_WHITE);
+
+      float rad = deg * DEG_TO_RAD;
+      int x = cx + (int)(r * cos(rad));
+      int y = cy + (int)(r * sin(rad));
+      display.drawLine(cx, cy, x, y, SSD1306_WHITE);
+
+      for (int t = 1; t <= 3; t++) {
+        float trailRad = (deg - t * 10) * DEG_TO_RAD;
+        int tx = cx + (int)(r * cos(trailRad));
+        int ty = cy + (int)(r * sin(trailRad));
+        display.drawPixel(tx, ty, SSD1306_WHITE);
+      }
+
+      pushMirrored();
+      delay(16);
+    }
+  }
+}
+
 // ----------------------------------------------------------------------------
 // BOOT ANIMATION
 // ----------------------------------------------------------------------------
-// Cinematic startup: blue-style edge flash -> INITIALIZING progress -> EDITH lock-on -> HUD.
-// It is intentionally fast so the glasses become usable quickly.
+// Cinematic startup: glitch acquire -> grid materializes -> INITIALIZING
+// progress -> "EDITH" decodes from scrambled cipher text -> radar sweep ->
+// segmented targeting ring spins up -> lock-on flash -> idle HUD.
+// Runs once at boot, in a few seconds total.
 
 void bootAnimation() {
   int cx = SCREEN_WIDTH / 2;
   int cy = 36;
 
-  // 1. EDITH powers up with blue-style perimeter flashes.
-  display.clearDisplay();
-  pushMirrored();
-  delay(100);
+  glitchPowerOn();
 
-  for (int flash = 0; flash < 2; flash++) {
-    display.clearDisplay();
+  materializeHexGrid();
+  delay(120);
 
-    // Perimeter edge flash.
-    display.drawFastHLine(0, 0, SCREEN_WIDTH, SSD1306_WHITE);
-    display.drawFastHLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SSD1306_WHITE);
-    display.drawFastVLine(0, 0, SCREEN_HEIGHT, SSD1306_WHITE);
-    display.drawFastVLine(SCREEN_WIDTH - 1, 0, SCREEN_HEIGHT, SSD1306_WHITE);
-
-    pushMirrored();
-    delay(45);
-
-    display.clearDisplay();
-    pushMirrored();
-    delay(35);
-  }
-
-  // 2. INITIALIZING... with a progress bar in the blue display area.
+  // INITIALIZING... progress bar in the blue display area.
   const int barX = 12;
   const int barY = 48;
   const int barW = 104;
   const int barH = 7;
 
-  for (int progress = 0; progress <= 100; progress += 4) {
+  for (int progress = 0; progress <= 100; progress += 5) {
     display.clearDisplay();
 
     display.setTextSize(1);
@@ -398,64 +548,47 @@ void bootAnimation() {
       display.fillRect(barX + 1, barY + 1, fillW, barH - 2, SSD1306_WHITE);
     }
 
-    // Small moving scan marker above the bar.
     int markerX = barX + ((barW - 1) * progress) / 100;
     display.drawFastVLine(markerX, 31, 10, SSD1306_WHITE);
 
     pushMirrored();
-    delay(18);
+    delay(14);
   }
 
-  // 3. EDITH identity appears behind a scanning line.
-  for (int phase = 0; phase < 14; phase++) {
+  // EDITH's name resolves out of scrambled cipher characters.
+  scrambleRevealText("EDITH", 20, 2, 650);
+  delay(200);
+
+  // Radar sweep spins up around what will become the reticle.
+  radarSweep(cx, cy, 26, 3);
+
+  // Segmented targeting ring spins and tightens, like a lock finalizing.
+  for (int spin = 0; spin < 10; spin++) {
     display.clearDisplay();
-
-    display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
-    int16_t x1, y1;
-    uint16_t w, h;
-    display.getTextBounds("EDITH", 0, 0, &x1, &y1, &w, &h);
-    display.setCursor((SCREEN_WIDTH - w) / 2, 20);
-    display.print("EDITH");
-
-    int scanY = 10 + phase * 3;
-    display.drawFastHLine(10, scanY, 108, SSD1306_WHITE);
-    display.drawFastHLine(25, scanY + 1, 78, SSD1306_WHITE);
-
+    float base = spin * 36.0f;
+    for (int seg = 0; seg < 4; seg++) {
+      float a0 = base + seg * 90.0f;
+      drawArcApprox(cx, cy, 22, a0, a0 + 60.0f, 6);
+    }
+    display.drawCircle(cx, cy, 10, SSD1306_WHITE);
     pushMirrored();
-    delay(25);
+    delay(30);
   }
 
-  // 4. Reticle acquires a target: expanding rings + four tracking ticks.
-  for (int r = 28; r >= 8; r -= 2) {
-    display.clearDisplay();
-
-    display.drawCircle(cx, cy, r, SSD1306_WHITE);
-    if (r > 12) display.drawCircle(cx, cy, r - 5, SSD1306_WHITE);
-
-    display.drawFastHLine(cx - r - 9, cy, 7, SSD1306_WHITE);
-    display.drawFastHLine(cx + r + 2, cy, 7, SSD1306_WHITE);
-    display.drawFastVLine(cx, cy - r - 9, 7, SSD1306_WHITE);
-    display.drawFastVLine(cx, cy + r + 2, 7, SSD1306_WHITE);
-
-    pushMirrored();
-    delay(35);
-  }
-
-  // 5. Target lock flash.
+  // Target lock flash.
   display.clearDisplay();
   display.fillCircle(cx, cy, 7, SSD1306_WHITE);
   display.drawCircle(cx, cy, 18, SSD1306_WHITE);
   pushMirrored();
-  delay(55);
+  delay(60);
 
   display.clearDisplay();
   display.drawCircle(cx, cy, 18, SSD1306_WHITE);
   display.drawCircle(cx, cy, 4, SSD1306_WHITE);
   pushMirrored();
-  delay(70);
+  delay(80);
 
-  // 6. HUD settles into the live reticle.
+  // HUD settles, pulsing outward once before going idle.
   for (int pulse = 0; pulse < 4; pulse++) {
     display.clearDisplay();
 
@@ -477,9 +610,13 @@ void bootAnimation() {
 // SETUP / LOOP
 // ----------------------------------------------------------------------------
 unsigned long lastIdleRefresh = 0;
+unsigned long lastIdleFrame = 0;
+float idleAngle = 0.0f;
+bool isIdle = true;
 
 void setup() {
   Serial.begin(115200);
+  randomSeed(micros());
 
   Wire.begin(OLED_SDA, OLED_SCL);
 
@@ -494,6 +631,7 @@ void setup() {
   bootAnimation();
   setupBLE();
 
+  lastIdleRefresh = millis();
   Serial.println("EDITH glasses ready. Advertising as " DEVICE_NAME);
 }
 
@@ -511,6 +649,7 @@ void loop() {
       renderReceivedText(msg);
     }
 
+    isIdle = false;
     lastIdleRefresh = millis();
   }
 
@@ -525,10 +664,18 @@ void loop() {
     oldDeviceConnected = deviceConnected;
   }
 
-  if (millis() - lastIdleRefresh > 15000) {
-    showIdleHUD();
-    lastIdleRefresh = millis();
+  if (!isIdle && millis() - lastIdleRefresh > 15000) {
+    isIdle = true;
   }
 
-  delay(20); // keep loop responsive, avoid busy-spinning
+  // While idle, keep redrawing at a modest rate so the orbiting marker
+  // is continuously animated instead of a single static frame.
+  if (isIdle && millis() - lastIdleFrame > 60) {
+    idleAngle += 6.0f;
+    if (idleAngle >= 360.0f) idleAngle -= 360.0f;
+    drawIdleHUDFrame(idleAngle);
+    lastIdleFrame = millis();
+  }
+
+  delay(15); // keep loop responsive, avoid busy-spinning
 }
