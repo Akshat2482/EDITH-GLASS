@@ -12,7 +12,7 @@ import java.net.URL
 class GroqClient {
     suspend fun ask(question: String): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GROQ_API_KEY.trim()
-        if (apiKey.isBlank() || apiKey == "PASTE_YOUR_GROQ_API_KEY_HERE") {
+        if (apiKey.isBlank() || apiKey == "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") {
             return@withContext Result.failure(
                 IllegalStateException("Groq API key is not configured")
             )
@@ -32,7 +32,7 @@ class GroqClient {
             }
 
             val body = JSONObject().apply {
-                put("model", "llama-3.3-70b-versatile")
+                put("model", "openai/gpt-oss-20b")
                 put("stream", false)
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
