@@ -120,13 +120,13 @@ class ServerCallbacks : public BLEServerCallbacks {
 
 class TextCharCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *chr) override {
-    std::string value = chr->getValue();
+    String value = chr->getValue();
     if (value.length() == 0) return;
 
     uint8_t frameType = (uint8_t)value[0];
     String payload = "";
     if (value.length() > 1) {
-      payload = String(value.c_str() + 1, value.length() - 1);
+      payload = value.substring(1);
     }
 
     switch (frameType) {
