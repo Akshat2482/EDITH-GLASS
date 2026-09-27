@@ -29,6 +29,7 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
 
     val listeningState: StateFlow<ListeningState> = speechHelper.listeningState
     val transcript: StateFlow<String> = speechHelper.transcript
+    val isTranscribing: StateFlow<Boolean> = speechHelper.isTranscribing
     val speechError: StateFlow<String?> = speechHelper.errorMessage
 
     private val _lastSentText = MutableStateFlow<String?>(null)
