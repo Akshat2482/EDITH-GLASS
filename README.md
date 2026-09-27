@@ -79,15 +79,11 @@ Example:
 
 JARVIS answers are sent automatically to the glasses. Long answers smoothly scroll vertically on the OLED instead of jumping directly between pages.
 
-For a local Android Studio build, put your Groq API key in `android/local.properties` (this file is ignored by Git):
+**Getting a key in:** the app itself asks for your Groq API key the first time it launches (tap the key icon in the header any time to set or replace it later). Paste it into that in-app dialog — it's saved with `EncryptedSharedPreferences` (AES-256) on your device only, and is never written to `local.properties`, never baked into `BuildConfig`, and never ships inside the APK. This also means the key can't end up in a git commit by accident, which is the whole point: a build-time key in `local.properties` is one accidental `git add -f` or a bypassed push-protection warning away from being public.
 
-```properties
-GROQ_API_KEY=gsk-your-key-here
-```
+> **If you ever had a Groq key in `android/local.properties` in an earlier version of this repo:** treat it as compromised and revoke/rotate it at [console.groq.com/keys](https://console.groq.com/keys) — a key that was committed even once, even briefly, should be considered burned. Rewriting git history removes it from the current view but not from anyone who already cloned/forked/cached it, so rotating the key itself is the only real fix.
 
-Do **not** commit the key or paste it into a public GitHub file. Treat the Groq API key like a password and never store it in source code or a public repository. For a production version, move the Groq request behind a small server so the key never ships inside the APK.
-
-The app uses Groq's OpenAI-compatible Chat Completions endpoint with the `llama-3.3-70b-versatile` model.
+The app uses Groq's OpenAI-compatible Chat Completions endpoint with the `openai/gpt-oss-20b` model.
 
 ## 4. Pairing / connecting the phone to the ESP32
 
