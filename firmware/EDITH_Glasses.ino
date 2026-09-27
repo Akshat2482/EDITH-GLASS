@@ -250,9 +250,9 @@ void wrapText(const String &text, int maxCharsPerLine, String outLines[], int &l
 // ----------------------------------------------------------------------------
 // PUBLIC RENDERING API
 // ----------------------------------------------------------------------------
-// Live receiver view: only the corner brackets and the recognized text are
-// drawn. The newest lines stay visible so a long sentence behaves like a
-// scrolling HUD rather than a giant paragraph/page.
+// Live receiver view: text ONLY. No HUD brackets are drawn while text is
+// being received. The newest lines stay visible so a long sentence behaves
+// like a scrolling HUD rather than a giant paragraph/page.
 
 void renderReceivedText(const String &text) {
   const int maxCharsPerLine = 21;
@@ -263,7 +263,6 @@ void renderReceivedText(const String &text) {
   wrapText(text, maxCharsPerLine, lines, totalLines, 24);
 
   display.clearDisplay();
-  drawCornerBrackets(2, 8);
 
   if (totalLines == 0) {
     pushMirrored();
