@@ -76,6 +76,7 @@ bool oldDeviceConnected = false;
 
 String incomingBuffer = "";     // accumulates a message across chunks
 volatile bool messageReady = false;
+volatile bool messageComplete = false;
 String readyMessage = "";
 
 // ----------------------------------------------------------------------------
@@ -132,9 +133,11 @@ class TextCharCallbacks : public BLECharacteristicCallbacks {
     switch (frameType) {
       case FRAME_START:
         incomingBuffer = payload;
+        messageComplete = false;
         break;
       case FRAME_CONTINUE:
         incomingBuffer += payload;
+        messageComplete = false;
         break;
       case FRAME_END:
         incomingBuffer += payload;
@@ -142,6 +145,7 @@ class TextCharCallbacks : public BLECharacteristicCallbacks {
           incomingBuffer = incomingBuffer.substring(0, MAX_MESSAGE_LEN);
         }
         readyMessage = incomingBuffer;
+        messageComplete = true;
         messageReady = true;
         incomingBuffer = "";
         break;
@@ -155,6 +159,7 @@ class TextCharCallbacks : public BLECharacteristicCallbacks {
           incomingBuffer = incomingBuffer.substring(0, MAX_MESSAGE_LEN);
         }
         readyMessage = incomingBuffer;
+        messageComplete = false;
         messageReady = true;
         break;
       default:
@@ -244,6 +249,24 @@ void wrapText(const String &text, int maxCharsPerLine, String outLines[], int &l
 // being received. The newest lines stay visible so a long sentence behaves
 // like a scrolling HUD rather than a giant paragraph/page.
 
+void drawReceivedTextAtOffset(String lines[], int totalLines, int offsetPx) {
+  const int maxLines = 5;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+
+  for (int i = 0; i < totalLines; i++) {
+    int y = 13 + i * 10 - offsetPx;
+    if (y >= 8 && y < SCREEN_HEIGHT) {
+      display.setCursor(4, y);
+      display.print(lines[i]);
+    }
+  }
+
+  pushMirrored();
+}
+
 void renderReceivedText(const String &text) {
   const int maxCharsPerLine = 21;
   const int maxLines = 5;
@@ -252,25 +275,39 @@ void renderReceivedText(const String &text) {
   int totalLines = 0;
   wrapText(text, maxCharsPerLine, lines, totalLines, 24);
 
-  display.clearDisplay();
-
   if (totalLines == 0) {
+    display.clearDisplay();
     pushMirrored();
     return;
   }
 
-  int firstLine = max(0, totalLines - maxLines);
-  int visible = min(maxLines, totalLines);
+  // Normal live speech updates stay pinned to the newest text.
+  int finalOffset = max(0, (totalLines - maxLines) * 10);
+  drawReceivedTextAtOffset(lines, totalLines, finalOffset);
+}
 
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
+void smoothScrollReceivedText(const String &text) {
+  const int maxCharsPerLine = 21;
+  const int maxLines = 5;
 
-  for (int i = 0; i < visible; i++) {
-    display.setCursor(4, 13 + i * 10);
-    display.print(lines[firstLine + i]);
+  String lines[24];
+  int totalLines = 0;
+  wrapText(text, maxCharsPerLine, lines, totalLines, 24);
+
+  if (totalLines <= maxLines) {
+    renderReceivedText(text);
+    return;
   }
 
-  pushMirrored();
+  int maxOffset = (totalLines - maxLines) * 10;
+
+  // Start at the top and smoothly scroll down to the newest line.
+  for (int offset = 0; offset <= maxOffset; offset += 2) {
+    drawReceivedTextAtOffset(lines, totalLines, offset);
+    delay(18);
+  }
+
+  drawReceivedTextAtOffset(lines, totalLines, maxOffset);
 }
 
 // Compatibility wrapper for normal complete BLE messages.
@@ -436,8 +473,15 @@ void loop() {
   // BLE write callback, consumed here on the main loop).
   if (messageReady) {
     messageReady = false;
+    bool complete = messageComplete;
     String msg = readyMessage;
-    renderReceivedText(msg);
+
+    if (complete) {
+      smoothScrollReceivedText(msg);
+    } else {
+      renderReceivedText(msg);
+    }
+
     lastIdleRefresh = millis();
   }
 
