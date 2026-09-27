@@ -1,18 +1,19 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
-val localProperties = java.util.Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) {
-        file.inputStream().use { load(it) }
-    }
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use { localProperties.load(it) }
 }
 
-val xaiApiKey = localProperties.getProperty("XAI_API_KEY", "")
+val groqApiKey = localProperties.getProperty("GROQ_API_KEY", "")
     .replace("\\", "\\\\")
-    .replace(""", "\\"")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.akshat.edithglasses"
@@ -22,9 +23,9 @@ android {
         applicationId = "com.akshat.edithglasses"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.4"
-        buildConfigField("String", "XAI_API_KEY", "\"$xaiApiKey\"")
+        versionCode = 6
+        versionName = "1.5"
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
     }
 
     buildTypes {
