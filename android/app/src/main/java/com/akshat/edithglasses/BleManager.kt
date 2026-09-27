@@ -224,6 +224,14 @@ class BleManager(private val context: Context) {
         drainQueue()
     }
 
+    /** Completes a live speech message so the firmware renders the accumulated buffer. */
+    fun finishStreaming() {
+        if (pendingChunks.isEmpty()) return
+        pendingChunks.addLast(byteArrayOf(BleProtocol.FRAME_END))
+        _connectionState.value = ConnectionState.SENDING
+        drainQueue()
+    }
+
     /** Sends only the newly recognized speech suffix to the glasses. */
     fun sendStreamingChunk(text: String, isFirstChunk: Boolean) {
         if (text.isBlank()) return
