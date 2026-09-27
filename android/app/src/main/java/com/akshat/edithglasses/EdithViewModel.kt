@@ -20,6 +20,7 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
 
     private val bleManager = BleManager(application)
     private val speechHelper = SpeechHelper(application)
+    private val grokClient = GrokClient()
 
     val connectionState: StateFlow<ConnectionState> = bleManager.connectionState
     val bleStatusMessage: StateFlow<String> = bleManager.statusMessage
@@ -54,30 +55,7 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             speechHelper.finalResults.collect { text ->
-                val remaining = if (streamStarted && text.startsWith(lastStreamedTranscript)) {
-                    text.substring(lastStreamedTranscript.length)
-                } else text
-
-                if (remaining.isNotBlank()) {
-                    bleManager.sendStreamingChunk(remaining, !streamStarted)
-                    streamStarted = true
-                }
-
-                // ALWAYS queue END. The old implementation skipped this when
-                // the BLE queue happened to be empty, which could leave a
-                // one-chunk message permanently uncommitted on the glasses.
-                if (streamStarted) {
-                    bleManager.finishStreaming()
-                }
-
-                lastStreamedTranscript = text
-                _lastSentText.value = text
-                streamStarted = false
-
-                if (_autoModeEnabled.value) {
-                    delay(650)
-                    speechHelper.startListening()
-                }
+                handleFinalSpeech(text)
             }
         }
 
@@ -168,6 +146,13 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
                     return@collect
                 }
 
+                // A JARVIS command must never be streamed to the OLED as the
+                // user speaks it. Wait for the final phrase, send only the
+                // question to Grok, then display Grok's answer.
+                if (current.trimStart().startsWith("jarvis", ignoreCase = true)) {
+                    return@collect
+                }
+
                 val suffix = if (streamStarted && current.startsWith(lastStreamedTranscript)) {
                     current.substring(lastStreamedTranscript.length)
                 } else current
@@ -182,7 +167,7 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    override fun onCleared() {
+    private suspend fun handleFinalSpeech(text: String) {\n        if (text.isBlank()) return\n\n        val trimmed = text.trim()\n        if (trimmed.startsWith("jarvis", ignoreCase = true)) {\n            resetStreamingState()\n            speechHelper.stopListening()\n\n            val question = trimmed\n                .replace(Regex("(?i)^jarvis\\s*[,;:.!?-]?\\s*"), "")\n                .trim()\n\n            if (question.isBlank()) {\n                val reply = "Yes, sir?"\n                bleManager.sendText(reply)\n                _lastSentText.value = reply\n            } else {\n                val thinking = "JARVIS: THINKING..."\n                bleManager.sendText(thinking)\n                _lastSentText.value = thinking\n\n                val result = grokClient.ask(question)\n                val answer = result.getOrElse { error ->\n                    "JARVIS ERROR: " + (error.message ?: "Grok request failed")\n                }.take(512)\n\n                bleManager.sendText(answer)\n                _lastSentText.value = answer\n            }\n\n            if (_autoModeEnabled.value) {\n                delay(400)\n                speechHelper.startListening()\n            }\n            return\n        }\n\n        val remaining = if (streamStarted && trimmed.startsWith(lastStreamedTranscript)) {\n            trimmed.substring(lastStreamedTranscript.length)\n        } else trimmed\n\n        if (remaining.isNotBlank()) {\n            bleManager.sendStreamingChunk(remaining, !streamStarted)\n            streamStarted = true\n        }\n\n        if (streamStarted) {\n            bleManager.finishStreaming()\n        }\n\n        lastStreamedTranscript = trimmed\n        _lastSentText.value = trimmed\n        streamStarted = false\n\n        if (_autoModeEnabled.value) {\n            delay(650)\n            speechHelper.startListening()\n        }\n    }\n    override fun onCleared() {
         super.onCleared()
         speechHelper.destroy()
         bleManager.disconnect()
