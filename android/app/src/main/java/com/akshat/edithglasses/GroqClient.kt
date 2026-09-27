@@ -36,16 +36,22 @@ class GroqClient {
             val body = JSONObject().apply {
                 put("model", "openai/gpt-oss-20b")
                 put("stream", false)
+                put("max_tokens", 40)
                 put("messages", JSONArray().apply {
                     put(JSONObject().apply {
                         put("role", "system")
                         put(
                             "content",
                             "You are JARVIS inside EDITH smart glasses. " +
-                                "Answer clearly, accurately, and concisely. " +
+                                "Reply in ONE short sentence, ideally under 12 words. " +
+                                "Never explain your reasoning, never add caveats, and " +
+                                "never ask a follow-up question unless the user's " +
+                                "question is itself unanswerable without one. " +
                                 "Plain text only. No markdown tables, no emojis, " +
-                                "and no unnecessary preamble. Keep answers suitable " +
-                                "for a small 128x64 OLED display."
+                                "and no preamble like \"Sure\" or \"Here's the answer\". " +
+                                "This is a tiny 128x64 OLED display — every extra word " +
+                                "costs screen space, so be as brief as possible while " +
+                                "still answering correctly."
                         )
                     })
                     put(JSONObject().apply {
