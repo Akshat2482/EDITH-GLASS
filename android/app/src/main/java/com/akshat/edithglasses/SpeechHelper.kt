@@ -41,6 +41,10 @@ class SpeechHelper(private val context: Context) {
     val lastErrorCode: StateFlow<Int?> = _lastErrorCode.asStateFlow()
 
     /** Emits a finalized (non-partial) transcript each time recognition completes with a non-empty result. */
+    /** Emits every changed partial recognition result immediately. */
+    private val _partialResults = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val partialResults: SharedFlow<String> = _partialResults
+
     private val _finalResults = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val finalResults: SharedFlow<String> = _finalResults
 
@@ -99,6 +103,7 @@ class SpeechHelper(private val context: Context) {
                     if (!best.isNullOrEmpty()) {
                         _isTranscribing.value = true
                         _transcript.value = best
+                        _partialResults.tryEmit(best)
                     }
                 }
 
