@@ -157,14 +157,6 @@ fun EdithApp(
                 isTranscribing = isTranscribing
             )
 
-            Spacer(Modifier.height(16.dp))
-
-            SendRow(
-                enabled = connectionState == ConnectionState.CONNECTED && transcript.isNotBlank(),
-                sending = connectionState == ConnectionState.SENDING,
-                onSend = { viewModel.sendCurrentTranscript() }
-            )
-
             Spacer(Modifier.weight(1f))
 
             SettingsSection()
@@ -415,26 +407,6 @@ private fun ShimmerSpinner() {
             useCenter = false,
             style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
         )
-    }
-}
-
-@Composable
-private fun SendRow(enabled: Boolean, sending: Boolean, onSend: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (sending) {
-            Text("SENDING...", color = EdithWarning, fontSize = 12.sp, modifier = Modifier.padding(end = 10.dp))
-        }
-        Button(
-            onClick = onSend,
-            enabled = enabled && !sending,
-            colors = ButtonDefaults.buttonColors(containerColor = EdithAccent, contentColor = Color.Black)
-        ) {
-            Text("SEND TO GLASSES")
-        }
     }
 }
 
