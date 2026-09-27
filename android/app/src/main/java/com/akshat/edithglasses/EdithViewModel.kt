@@ -5,6 +5,7 @@ import android.speech.SpeechRecognizer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,14 +50,24 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     private var autoStartedOnce = false
+    private var streamingJob: Job? = null
+    private var lastStreamedTranscript = ""
+    private var streamStarted = false
 
     init {
         // Every time a phrase is finalized, send it to the glasses, then
         // go straight back to listening for the next one.
         viewModelScope.launch {
             speechHelper.finalResults.collect { text ->
-                bleManager.sendText(text)
+                val remaining = if (streamStarted && text.startsWith(lastStreamedTranscript)) {
+                    text.substring(lastStreamedTranscript.length)
+                } else text
+                if (remaining.isNotBlank()) {
+                    bleManager.sendStreamingChunk(remaining, !streamStarted)
+                }
+                lastStreamedTranscript = text
                 _lastSentText.value = text
+                streamStarted = false
                 if (_autoModeEnabled.value) {
                     delay(300) // let the recognizer fully tear down before relaunching it
                     speechHelper.startListening()
@@ -90,19 +101,24 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
             bleManager.startScan()
         }
         _autoModeEnabled.value = true
+        resetStreamingState()
         speechHelper.startListening()
+        startStreamingPartialUpdates()
     }
 
     /** Pauses the continuous loop — mic stops, and finalized/errored results no longer auto-restart listening. */
     fun pauseAuto() {
         _autoModeEnabled.value = false
+        resetStreamingState()
         speechHelper.stopListening()
     }
 
     /** Resumes the continuous loop after a manual pause. */
     fun resumeAuto() {
         _autoModeEnabled.value = true
+        resetStreamingState()
         speechHelper.startListening()
+        startStreamingPartialUpdates()
     }
 
     fun connect() {
@@ -129,6 +145,34 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             bleManager.sendText(text)
             _lastSentText.value = text
+        }
+    }
+
+    private fun resetStreamingState() {
+        streamingJob?.cancel()
+        streamingJob = null
+        lastStreamedTranscript = ""
+        streamStarted = false
+    }
+
+    private fun startStreamingPartialUpdates() {
+        if (streamingJob?.isActive == true) return
+        streamingJob = viewModelScope.launch {
+            while (isActive && _autoModeEnabled.value) {
+                val current = transcript.value
+                if (current.isNotBlank() && current != lastStreamedTranscript) {
+                    val suffix = if (streamStarted && current.startsWith(lastStreamedTranscript)) {
+                        current.substring(lastStreamedTranscript.length)
+                    } else current
+                    if (suffix.isNotBlank()) {
+                        bleManager.sendStreamingChunk(suffix, !streamStarted)
+                        streamStarted = true
+                        lastStreamedTranscript = current
+                        _lastSentText.value = current
+                    }
+                }
+                delay(900)
+            }
         }
     }
 
