@@ -196,18 +196,8 @@ void setupBLE() {
 // HUD PRIMITIVES
 // ----------------------------------------------------------------------------
 void drawCornerBrackets(int inset = 2, int len = 8) {
-  // Top-left
-  display.drawLine(inset, inset, inset + len, inset, SSD1306_WHITE);
-  display.drawLine(inset, inset, inset, inset + len, SSD1306_WHITE);
-  // Top-right
-  display.drawLine(SCREEN_WIDTH - 1 - inset, inset, SCREEN_WIDTH - 1 - inset - len, inset, SSD1306_WHITE);
-  display.drawLine(SCREEN_WIDTH - 1 - inset, inset, SCREEN_WIDTH - 1 - inset, inset + len, SSD1306_WHITE);
-  // Bottom-left
-  display.drawLine(inset, SCREEN_HEIGHT - 1 - inset, inset + len, SCREEN_HEIGHT - 1 - inset, SSD1306_WHITE);
-  display.drawLine(inset, SCREEN_HEIGHT - 1 - inset, inset, SCREEN_HEIGHT - 1 - inset - len, SSD1306_WHITE);
-  // Bottom-right
-  display.drawLine(SCREEN_WIDTH - 1 - inset, SCREEN_HEIGHT - 1 - inset, SCREEN_WIDTH - 1 - inset - len, SCREEN_HEIGHT - 1 - inset, SSD1306_WHITE);
-  display.drawLine(SCREEN_WIDTH - 1 - inset, SCREEN_HEIGHT - 1 - inset, SCREEN_WIDTH - 1 - inset, SCREEN_HEIGHT - 1 - inset - len, SSD1306_WHITE);
+  // Intentionally empty. EDITH's HUD uses reticles, rings and scan marks,
+  // never corner brackets.
 }
 
 void drawStatusBar(const char *label) {
@@ -290,17 +280,26 @@ void displayMirroredText(const String &text) {
 
 void showIdleHUD() {
   display.clearDisplay();
-  drawCornerBrackets(2, 8);
 
+  // Minimal EDITH-style reticle: no corner brackets.
   int cx = SCREEN_WIDTH / 2;
-  int cy = 34;
+  int cy = 35;
 
-  display.drawCircle(cx, cy, 11, SSD1306_WHITE);
-  display.drawCircle(cx, cy, 2, SSD1306_WHITE);
-  display.drawFastHLine(cx - 23, cy, 10, SSD1306_WHITE);
-  display.drawFastHLine(cx + 14, cy, 10, SSD1306_WHITE);
-  display.drawFastVLine(cx, cy - 19, 8, SSD1306_WHITE);
-  display.drawFastVLine(cx, cy + 11, 8, SSD1306_WHITE);
+  display.drawCircle(cx, cy, 14, SSD1306_WHITE);
+  display.drawCircle(cx, cy, 5, SSD1306_WHITE);
+  display.drawPixel(cx, cy, SSD1306_BLACK);
+
+  display.drawFastHLine(cx - 31, cy, 12, SSD1306_WHITE);
+  display.drawFastHLine(cx + 20, cy, 12, SSD1306_WHITE);
+  display.drawFastVLine(cx, cy - 27, 10, SSD1306_WHITE);
+  display.drawFastVLine(cx, cy + 18, 10, SSD1306_WHITE);
+
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(4, 2);
+  display.print("EDITH");
+  display.setCursor(92, 2);
+  display.print("READY");
 
   pushMirrored();
 }
@@ -312,31 +311,37 @@ void showIdleHUD() {
 // It is intentionally fast so the glasses become usable quickly.
 
 void bootAnimation() {
+  int cx = SCREEN_WIDTH / 2;
+  int cy = 34;
+
+  // 1. Black -> central scan beam, like an optical HUD powering on.
   display.clearDisplay();
   pushMirrored();
-  delay(120);
+  delay(100);
 
-  // 1. Fast vertical scanner with expanding side brackets.
-  for (int x = -8; x <= SCREEN_WIDTH + 8; x += 4) {
+  for (int x = -8; x <= SCREEN_WIDTH + 8; x += 3) {
     display.clearDisplay();
 
-    int left = max(2, x / 3);
-    int right = min(SCREEN_WIDTH - 3, SCREEN_WIDTH - 1 - x / 3);
-    display.drawFastVLine(x, 8, SCREEN_HEIGHT - 16, SSD1306_WHITE);
-
+    // Thin moving scan beam.
+    display.drawFastVLine(x, 7, 50, SSD1306_WHITE);
     if (x > 8 && x < SCREEN_WIDTH - 8) {
-      display.drawFastHLine(8, 8, 18, SSD1306_WHITE);
-      display.drawFastHLine(SCREEN_WIDTH - 26, 8, 18, SSD1306_WHITE);
-      display.drawFastVLine(left, 8, 7, SSD1306_WHITE);
-      display.drawFastVLine(right, 8, 7, SSD1306_WHITE);
+      display.drawFastVLine(x - 1, 18, 28, SSD1306_WHITE);
+      display.drawFastHLine(max(0, x - 18), cy, 36, SSD1306_WHITE);
     }
 
+    // Small reticle ticks appear around the scan point.
+    int tx = constrain(x, 18, SCREEN_WIDTH - 19);
+    display.drawFastHLine(tx - 13, cy - 13, 7, SSD1306_WHITE);
+    display.drawFastHLine(tx + 6, cy - 13, 7, SSD1306_WHITE);
+    display.drawFastVLine(tx - 13, cy - 13, 7, SSD1306_WHITE);
+    display.drawFastVLine(tx + 13, cy - 13, 7, SSD1306_WHITE);
+
     pushMirrored();
-    delay(10);
+    delay(8);
   }
 
-  // 2. EDITH logo materializes with a horizontal scanline.
-  for (int phase = 0; phase < 10; phase++) {
+  // 2. EDITH identity appears behind a scanning line.
+  for (int phase = 0; phase < 14; phase++) {
     display.clearDisplay();
 
     display.setTextSize(2);
@@ -347,54 +352,56 @@ void bootAnimation() {
     display.setCursor((SCREEN_WIDTH - w) / 2, 20);
     display.print("EDITH");
 
-    int scanY = 14 + phase * 4;
-    display.drawFastHLine(18, scanY, 92, SSD1306_WHITE);
+    int scanY = 10 + phase * 3;
+    display.drawFastHLine(10, scanY, 108, SSD1306_WHITE);
+    display.drawFastHLine(25, scanY + 1, 78, SSD1306_WHITE);
+
+    pushMirrored();
+    delay(25);
+  }
+
+  // 3. Reticle acquires a target: expanding rings + four tracking ticks.
+  for (int r = 28; r >= 8; r -= 2) {
+    display.clearDisplay();
+
+    display.drawCircle(cx, cy, r, SSD1306_WHITE);
+    if (r > 12) display.drawCircle(cx, cy, r - 5, SSD1306_WHITE);
+
+    display.drawFastHLine(cx - r - 9, cy, 7, SSD1306_WHITE);
+    display.drawFastHLine(cx + r + 2, cy, 7, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy - r - 9, 7, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy + r + 2, 7, SSD1306_WHITE);
 
     pushMirrored();
     delay(35);
   }
 
-  // 3. Target lock: ring expands, then collapses into the HUD center.
-  int cx = SCREEN_WIDTH / 2;
-  int cy = 34;
+  // 4. Target lock flash.
+  display.clearDisplay();
+  display.fillCircle(cx, cy, 7, SSD1306_WHITE);
+  display.drawCircle(cx, cy, 18, SSD1306_WHITE);
+  pushMirrored();
+  delay(55);
 
-  for (int r = 22; r >= 7; r -= 3) {
+  display.clearDisplay();
+  display.drawCircle(cx, cy, 18, SSD1306_WHITE);
+  display.drawCircle(cx, cy, 4, SSD1306_WHITE);
+  pushMirrored();
+  delay(70);
+
+  // 5. HUD settles into the live reticle.
+  for (int pulse = 0; pulse < 4; pulse++) {
     display.clearDisplay();
-    drawCornerBrackets(2, 8);
+
+    int r = 9 + pulse * 2;
     display.drawCircle(cx, cy, r, SSD1306_WHITE);
-    display.drawFastHLine(cx - r - 8, cy, 6, SSD1306_WHITE);
-    display.drawFastHLine(cx + r + 2, cy, 6, SSD1306_WHITE);
-    display.drawFastVLine(cx, cy - r - 8, 6, SSD1306_WHITE);
-    display.drawFastVLine(cx, cy + r + 2, 6, SSD1306_WHITE);
+    display.drawFastHLine(cx - 25 - pulse, cy, 10, SSD1306_WHITE);
+    display.drawFastHLine(cx + 16 + pulse, cy, 10, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy - 22 - pulse, 8, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy + 15 + pulse, 8, SSD1306_WHITE);
+
     pushMirrored();
-    delay(45);
-  }
-
-  // 4. Brief lock flash.
-  display.clearDisplay();
-  drawCornerBrackets(2, 8);
-  display.fillCircle(cx, cy, 3, SSD1306_WHITE);
-  pushMirrored();
-  delay(90);
-
-  display.clearDisplay();
-  drawCornerBrackets(2, 8);
-  display.drawCircle(cx, cy, 11, SSD1306_WHITE);
-  display.drawCircle(cx, cy, 2, SSD1306_WHITE);
-  pushMirrored();
-  delay(160);
-
-  // 5. Final HUD pulse.
-  for (int pulse = 0; pulse < 3; pulse++) {
-    display.clearDisplay();
-    drawCornerBrackets(2, 8);
-    int len = 8 + pulse * 3;
-    display.drawFastHLine(cx - len, cy, len - 2, SSD1306_WHITE);
-    display.drawFastHLine(cx + 2, cy, len - 2, SSD1306_WHITE);
-    display.drawFastVLine(cx, cy - len, len - 2, SSD1306_WHITE);
-    display.drawFastVLine(cx, cy + 2, len - 2, SSD1306_WHITE);
-    pushMirrored();
-    delay(45);
+    delay(40);
   }
 
   showIdleHUD();
