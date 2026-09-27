@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val localProperties = java.util.Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+val xaiApiKey = localProperties.getProperty("XAI_API_KEY", "")
+    .replace("\\", "\\\\")
+    .replace(""", "\\"")
+
 android {
     namespace = "com.akshat.edithglasses"
     compileSdk = 34
@@ -11,8 +22,9 @@ android {
         applicationId = "com.akshat.edithglasses"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.4"
+        buildConfigField("String", "XAI_API_KEY", ""$xaiApiKey"")
     }
 
     buildTypes {
@@ -33,6 +45,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
