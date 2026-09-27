@@ -158,20 +158,19 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
     private fun startStreamingPartialUpdates() {
         if (streamingJob?.isActive == true) return
         streamingJob = viewModelScope.launch {
-            while (isActive && _autoModeEnabled.value) {
-                val current = transcript.value
-                if (current.isNotBlank() && current != lastStreamedTranscript) {
-                    val suffix = if (streamStarted && current.startsWith(lastStreamedTranscript)) {
-                        current.substring(lastStreamedTranscript.length)
-                    } else current
-                    if (suffix.isNotBlank()) {
-                        bleManager.sendStreamingChunk(suffix, !streamStarted)
-                        streamStarted = true
-                        lastStreamedTranscript = current
-                        _lastSentText.value = current
-                    }
+            speechHelper.partialResults.collect { current ->
+                if (!_autoModeEnabled.value || current.isBlank() || current == lastStreamedTranscript) return@collect
+
+                val suffix = if (streamStarted && current.startsWith(lastStreamedTranscript)) {
+                    current.substring(lastStreamedTranscript.length)
+                } else current
+
+                if (suffix.isNotBlank()) {
+                    bleManager.sendStreamingChunk(suffix, !streamStarted)
+                    streamStarted = true
+                    lastStreamedTranscript = current
+                    _lastSentText.value = current
                 }
-                delay(900)
             }
         }
     }
