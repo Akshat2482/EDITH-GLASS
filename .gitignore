@@ -1,0 +1,15 @@
+# Android / Gradle build outputs
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/captures/
+android/.cxx/
+
+# Arduino build cache (if using arduino-cli locally)
+firmware/build/
+
+.DS_Store
