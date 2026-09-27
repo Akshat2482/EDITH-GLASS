@@ -66,6 +66,12 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
                 } else text
                 if (remaining.isNotBlank()) {
                     bleManager.sendStreamingChunk(remaining, !streamStarted)
+                    streamStarted = true
+                }
+                if (streamStarted) {
+                    bleManager.finishStreaming()
+                } else if (text.isNotBlank()) {
+                    bleManager.sendText(text)
                 }
                 lastStreamedTranscript = text
                 _lastSentText.value = text
