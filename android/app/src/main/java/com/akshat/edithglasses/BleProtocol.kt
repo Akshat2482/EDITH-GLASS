@@ -16,6 +16,7 @@ object BleProtocol {
     const val FRAME_START: Byte = 0x01
     const val FRAME_CONTINUE: Byte = 0x02
     const val FRAME_END: Byte = 0x03
+    const val FRAME_APPEND: Byte = 0x04
 
     /** MTU we ask the peripheral for; real usable size may be negotiated lower. */
     const val REQUESTED_MTU = 517
