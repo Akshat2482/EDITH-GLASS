@@ -190,11 +190,6 @@ class BleManager(private val context: Context) {
      * draining — chunks are appended and sent in order.
      */
     fun sendText(text: String) {
-        val characteristic = textCharacteristic
-        if (characteristic == null) {
-            _statusMessage.value = "Not connected"
-            return
-        }
         val payloadBytes = text.toByteArray(StandardCharsets.UTF_8)
         val chunkSize = (negotiatedMtu - BleProtocol.ATT_HEADER_OVERHEAD - BleProtocol.FRAME_HEADER_SIZE)
             .coerceAtLeast(20)
@@ -231,8 +226,7 @@ class BleManager(private val context: Context) {
 
     /** Sends only the newly recognized speech suffix to the glasses. */
     fun sendStreamingChunk(text: String, isFirstChunk: Boolean) {
-        val characteristic = textCharacteristic
-        if (characteristic == null || text.isBlank()) return
+        if (text.isBlank()) return
         val bytes = text.toByteArray(StandardCharsets.UTF_8)
         val chunkSize = (negotiatedMtu - BleProtocol.ATT_HEADER_OVERHEAD - BleProtocol.FRAME_HEADER_SIZE).coerceAtLeast(20)
         val chunks = splitUtf8Safe(bytes, chunkSize)
