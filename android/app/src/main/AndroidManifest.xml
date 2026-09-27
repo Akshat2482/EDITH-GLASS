@@ -19,6 +19,10 @@
     <!-- Microphone for speech-to-text -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Required for the persistent background listening service on Android 14+. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
     <application
@@ -28,6 +32,11 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">
+
+        <service
+            android:name=".EdithBackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <activity
             android:name=".MainActivity"
