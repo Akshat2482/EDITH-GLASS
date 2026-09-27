@@ -1,19 +1,12 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
-val localProperties = Properties()
-val localPropertiesFile = rootProject.file("local.properties")
-if (localPropertiesFile.exists()) {
-    localPropertiesFile.inputStream().use { localProperties.load(it) }
-}
-
-val groqApiKey = localProperties.getProperty("GROQ_API_KEY", "")
-    .replace("\\", "\\\\")
-    .replace("\"", "\\\"")
+// NOTE: the Groq API key is no longer read from local.properties or baked
+// into BuildConfig. It's entered inside the app (ApiKeyDialog) and stored
+// encrypted on-device via ApiKeyManager (EncryptedSharedPreferences), so it
+// can never end up committed to source control again.
 
 android {
     namespace = "com.akshat.edithglasses"
@@ -23,9 +16,8 @@ android {
         applicationId = "com.akshat.edithglasses"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "1.5"
-        buildConfigField("String", "GROQ_API_KEY", "\"$groqApiKey\"")
+        versionCode = 7
+        versionName = "1.6"
     }
 
     buildTypes {
@@ -64,6 +56,10 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
     implementation("androidx.activity:activity-compose:1.9.1")
+
+    // Encrypted on-device storage for the Groq API key — entered at runtime,
+    // never shipped in source or in the APK.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     implementation(platform("androidx.compose:compose-bom:2024.06.00"))
     implementation("androidx.compose.ui:ui")
