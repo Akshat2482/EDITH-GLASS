@@ -61,7 +61,7 @@ The board is now advertising as `EDITH-GLASSES`.
 
    Grant both — the app is hands-free: the instant permissions are granted it starts scanning for `EDITH-GLASSES` and starts listening continuously. Every time it finalizes a phrase it sends that phrase to the glasses automatically and immediately goes back to listening for the next one — no mic tap, no send tap needed on a normal run. Tap the mic button any time to pause the loop (it stops listening and stops auto-sending); tap again to resume. There is no manual SEND button in the normal hands-free flow.
 
-## 4A. JARVIS / Grok
+## 4A. JARVIS / Groq
 
 When the live EDITH transcription hears a phrase beginning with **"Jarvis"**, the app treats the rest of the phrase as a question instead of sending the question itself to the OLED.
 
@@ -70,7 +70,7 @@ Example:
 ```
 "Jarvis, what is the capital of France?"
                 ↓
-             Grok 4.7
+             Groq
                 ↓
 "The capital of France is Paris."
                 ↓
@@ -79,15 +79,15 @@ Example:
 
 JARVIS answers are sent automatically to the glasses. Long answers smoothly scroll vertically on the OLED instead of jumping directly between pages.
 
-For a local Android Studio build, put your xAI key in `android/local.properties` (this file is ignored by Git):
+For a local Android Studio build, put your Groq API key in `android/local.properties` (this file is ignored by Git):
 
 ```properties
-XAI_API_KEY=xai-your-key-here
+GROQ_API_KEY=gsk-your-key-here
 ```
 
-Do **not** commit the key or paste it into a public GitHub file. xAI recommends treating API keys like passwords and avoiding source-code/public-repository storage. For a production version, move the Grok request behind a small server so the key never ships inside the APK.
+Do **not** commit the key or paste it into a public GitHub file. Treat the Groq API key like a password and never store it in source code or a public repository. For a production version, move the Groq request behind a small server so the key never ships inside the APK.
 
-The app uses xAI's Chat Completions endpoint with the `grok-4.7` model.
+The app uses Groq's OpenAI-compatible Chat Completions endpoint with the `llama-3.3-70b-versatile` model.
 
 ## 4. Pairing / connecting the phone to the ESP32
 
@@ -98,7 +98,7 @@ BLE here does **not** use the standard Android Bluetooth "pairing" dialog — th
 3. Tap **CONNECT**. The app scans specifically for a device advertising the EDITH service UUID and named `EDITH-GLASSES`, and connects automatically the moment it's found.
 4. The status panel turns green and shows "Connected" once the app has discovered the text characteristic on the ESP32.
 5. Tap the microphone button, speak, and the live transcription appears in the **TRANSCRIPTION** box.
-6. Tap **SEND TO GLASSES** — the text is sent (chunked + reassembled per `BLE_PROTOCOL.md`) and appears mirrored on the OLED inside the HUD frame, auto-wrapped and auto-paged if it's long.
+6. Normal speech is sent automatically (chunked + reassembled per `BLE_PROTOCOL.md`) and appears mirrored on the OLED inside the HUD frame, auto-wrapped and smoothly scrolled if it's long.
 7. Tap **DISCONNECT** to close the BLE connection. The ESP32 automatically resumes advertising so you can reconnect at any time.
 
 If **CONNECT** doesn't find the device: confirm the ESP32 finished its boot animation (it isn't advertising until `setup()` completes), confirm Bluetooth is on, and confirm the phone granted the Bluetooth permissions (the status line under the CONNECT/DISCONNECT buttons will say so).
