@@ -1,6 +1,8 @@
 package com.akshat.edithglasses
 
 import android.app.Application
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import android.speech.SpeechRecognizer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -102,6 +104,7 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         }
         _autoModeEnabled.value = true
         resetStreamingState()
+        startBackgroundService()
         speechHelper.startListening()
         startStreamingPartialUpdates()
     }
@@ -111,12 +114,14 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         _autoModeEnabled.value = false
         resetStreamingState()
         speechHelper.stopListening()
+        stopBackgroundService()
     }
 
     /** Resumes the continuous loop after a manual pause. */
     fun resumeAuto() {
         _autoModeEnabled.value = true
         resetStreamingState()
+        startBackgroundService()
         speechHelper.startListening()
         startStreamingPartialUpdates()
     }
@@ -146,6 +151,17 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
             bleManager.sendText(text)
             _lastSentText.value = text
         }
+    }
+
+    private fun startBackgroundService() {
+        val intent = Intent(getApplication<Application>(), EdithBackgroundService::class.java)
+        ContextCompat.startForegroundService(getApplication(), intent)
+    }
+
+    private fun stopBackgroundService() {
+        getApplication<Application>().stopService(
+            Intent(getApplication<Application>(), EdithBackgroundService::class.java)
+        )
     }
 
     private fun resetStreamingState() {
