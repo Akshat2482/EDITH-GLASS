@@ -59,7 +59,35 @@ The board is now advertising as `EDITH-GLASSES`.
    - **Nearby devices** (Bluetooth scan/connect — Android 12+) or **Location** (Android 11 and below, required by the OS for BLE scanning even though this app does not use your location)
    - **Microphone**
 
-   Grant both — the app is hands-free: the instant permissions are granted it starts scanning for `EDITH-GLASSES` and starts listening continuously. Every time it finalizes a phrase it sends that phrase to the glasses automatically and immediately goes back to listening for the next one — no mic tap, no send tap needed on a normal run. Tap the mic button any time to pause the loop (it stops listening and stops auto-sending); tap again to resume. The **SEND TO GLASSES** button still exists for manually resending the last transcript (e.g. right after unpausing).
+   Grant both — the app is hands-free: the instant permissions are granted it starts scanning for `EDITH-GLASSES` and starts listening continuously. Every time it finalizes a phrase it sends that phrase to the glasses automatically and immediately goes back to listening for the next one — no mic tap, no send tap needed on a normal run. Tap the mic button any time to pause the loop (it stops listening and stops auto-sending); tap again to resume. There is no manual SEND button in the normal hands-free flow.
+
+## 4A. JARVIS / Grok
+
+When the live EDITH transcription hears a phrase beginning with **"Jarvis"**, the app treats the rest of the phrase as a question instead of sending the question itself to the OLED.
+
+Example:
+
+```
+"Jarvis, what is the capital of France?"
+                ↓
+             Grok 4.7
+                ↓
+"The capital of France is Paris."
+                ↓
+             EDITH OLED
+```
+
+JARVIS answers are sent automatically to the glasses. Long answers smoothly scroll vertically on the OLED instead of jumping directly between pages.
+
+For a local Android Studio build, put your xAI key in `android/local.properties` (this file is ignored by Git):
+
+```properties
+XAI_API_KEY=xai-your-key-here
+```
+
+Do **not** commit the key or paste it into a public GitHub file. xAI recommends treating API keys like passwords and avoiding source-code/public-repository storage. For a production version, move the Grok request behind a small server so the key never ships inside the APK.
+
+The app uses xAI's Chat Completions endpoint with the `grok-4.7` model.
 
 ## 4. Pairing / connecting the phone to the ESP32
 
