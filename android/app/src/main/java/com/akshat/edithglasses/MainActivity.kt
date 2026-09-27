@@ -21,11 +21,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Canvas
 import com.akshat.edithglasses.ui.*
+import kotlinx.coroutines.isActive
 
 class MainActivity : ComponentActivity() {
 
@@ -94,6 +101,7 @@ fun EdithApp(
     val listeningState by viewModel.listeningState.collectAsState()
     val transcript by viewModel.transcript.collectAsState()
     val speechError by viewModel.speechError.collectAsState()
+    val isTranscribing by viewModel.isTranscribing.collectAsState()
     val lastSent by viewModel.lastSentText.collectAsState()
     val autoModeEnabled by viewModel.autoModeEnabled.collectAsState()
 
@@ -145,7 +153,8 @@ fun EdithApp(
 
             TranscriptionArea(
                 transcript = transcript,
-                errorMessage = speechError
+                errorMessage = speechError,
+                isTranscribing = isTranscribing
             )
 
             Spacer(Modifier.height(16.dp))
@@ -330,7 +339,7 @@ private fun MicButton(
 }
 
 @Composable
-private fun TranscriptionArea(transcript: String, errorMessage: String?) {
+private fun TranscriptionArea(transcript: String, errorMessage: String?, isTranscribing: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -340,7 +349,21 @@ private fun TranscriptionArea(transcript: String, errorMessage: String?) {
             .border(1.dp, EdithAccentDim, RoundedCornerShape(10.dp))
             .padding(12.dp)
     ) {
-        Text("TRANSCRIPTION", color = EdithTextPrimary.copy(alpha = 0.4f), fontSize = 10.sp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text("TRANSCRIPTION", color = EdithTextPrimary.copy(alpha = 0.4f), fontSize = 10.sp)
+            if (isTranscribing) {
+                ShimmerSpinner()
+                Text(
+                    "TRANSCRIBING",
+                    color = EdithAccent.copy(alpha = 0.75f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
         Spacer(Modifier.height(4.dp))
         Text(
             text = transcript.ifBlank { "—" },
@@ -351,6 +374,47 @@ private fun TranscriptionArea(transcript: String, errorMessage: String?) {
             Spacer(Modifier.height(6.dp))
             Text(errorMessage, color = Color(0xFFFF5C5C), fontSize = 12.sp)
         }
+    }
+}
+
+
+@Composable
+private fun ShimmerSpinner() {
+    val transition = rememberInfiniteTransition(label = "transcriptionShimmer")
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "spinnerRotation"
+    )
+
+    Canvas(
+        modifier = Modifier
+            .size(14.dp)
+            .rotate(rotation)
+    ) {
+        val shimmer = Brush.sweepGradient(
+            colors = listOf(
+                Color.Transparent,
+                EdithAccent.copy(alpha = 0.25f),
+                EdithAccent,
+                Color.White,
+                EdithAccent,
+                EdithAccent.copy(alpha = 0.25f),
+                Color.Transparent
+            ),
+            center = Offset(size.width / 2f, size.height / 2f)
+        )
+        drawArc(
+            brush = shimmer,
+            startAngle = -70f,
+            sweepAngle = 290f,
+            useCenter = false,
+            style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+        )
     }
 }
 
