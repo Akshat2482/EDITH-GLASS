@@ -287,7 +287,7 @@ class BleManager(private val context: Context) {
         }
 
         writeInFlight = true
-        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
         characteristic.value = next
         val started = g.writeCharacteristic(characteristic)
         if (!started) {
