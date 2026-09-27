@@ -29,6 +29,10 @@ class SpeechHelper(private val context: Context) {
     private val _transcript = MutableStateFlow("")
     val transcript: StateFlow<String> = _transcript.asStateFlow()
 
+    /** True only while SpeechRecognizer is actively turning spoken words into text. */
+    private val _isTranscribing = MutableStateFlow(false)
+    val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
+
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -52,6 +56,7 @@ class SpeechHelper(private val context: Context) {
         _errorMessage.value = null
         _lastErrorCode.value = null
         _transcript.value = ""
+        _isTranscribing.value = false
 
         recognizer?.destroy()
         recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
@@ -60,7 +65,9 @@ class SpeechHelper(private val context: Context) {
                     _listeningState.value = ListeningState.LISTENING
                 }
 
-                override fun onBeginningOfSpeech() {}
+                override fun onBeginningOfSpeech() {
+                    _isTranscribing.value = true
+                }
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
 
@@ -69,12 +76,14 @@ class SpeechHelper(private val context: Context) {
                 }
 
                 override fun onError(error: Int) {
+                    _isTranscribing.value = false
                     _listeningState.value = ListeningState.ERROR
                     _lastErrorCode.value = error
                     _errorMessage.value = describeError(error)
                 }
 
                 override fun onResults(results: android.os.Bundle?) {
+                    _isTranscribing.value = false
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     val best = matches?.firstOrNull().orEmpty()
                     _transcript.value = best
@@ -88,6 +97,7 @@ class SpeechHelper(private val context: Context) {
                     val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     val best = matches?.firstOrNull()
                     if (!best.isNullOrEmpty()) {
+                        _isTranscribing.value = true
                         _transcript.value = best
                     }
                 }
@@ -107,6 +117,7 @@ class SpeechHelper(private val context: Context) {
     }
 
     fun stopListening() {
+        _isTranscribing.value = false
         recognizer?.stopListening()
     }
 
