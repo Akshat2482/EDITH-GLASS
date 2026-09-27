@@ -229,6 +229,28 @@ class BleManager(private val context: Context) {
         drainQueue()
     }
 
+    /** Sends only the newly recognized speech suffix to the glasses. */
+    fun sendStreamingChunk(text: String, isFirstChunk: Boolean) {
+        val characteristic = textCharacteristic
+        if (characteristic == null || text.isBlank()) return
+        val bytes = text.toByteArray(StandardCharsets.UTF_8)
+        val chunkSize = (negotiatedMtu - BleProtocol.ATT_HEADER_OVERHEAD - BleProtocol.FRAME_HEADER_SIZE).coerceAtLeast(20)
+        val chunks = splitUtf8Safe(bytes, chunkSize)
+        chunks.forEachIndexed { index, chunk ->
+            val type = when {
+                isFirstChunk && index == 0 -> BleProtocol.FRAME_START
+                index == chunks.size - 1 -> BleProtocol.FRAME_APPEND
+                else -> BleProtocol.FRAME_CONTINUE
+            }
+            val packet = ByteArray(chunk.size + 1)
+            packet[0] = type
+            System.arraycopy(chunk, 0, packet, 1, chunk.size)
+            pendingChunks.addLast(packet)
+        }
+        _connectionState.value = ConnectionState.SENDING
+        drainQueue()
+    }
+
     /** Splits [bytes] into pieces no larger than [maxSize], never cutting a UTF-8 char in half. */
     private fun splitUtf8Safe(bytes: ByteArray, maxSize: Int): List<ByteArray> {
         if (bytes.isEmpty()) return emptyList()
