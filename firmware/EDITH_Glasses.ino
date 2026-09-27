@@ -65,6 +65,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define FRAME_START     0x01   // begins a new message (clears buffer)
 #define FRAME_CONTINUE  0x02   // appends payload to buffer
 #define FRAME_END       0x03   // appends payload, then message is complete
+#define FRAME_APPEND    0x04   // appends a live speech chunk and renders it immediately
 
 #define MAX_MESSAGE_LEN 512    // safety cap on assembled message length
 
@@ -143,6 +144,18 @@ class TextCharCallbacks : public BLECharacteristicCallbacks {
         readyMessage = incomingBuffer;
         messageReady = true;
         incomingBuffer = "";
+        break;
+
+      case FRAME_APPEND:
+        // Live speech update: add only the newly recognized suffix and
+        // render immediately. There is deliberately no status bar or
+        // pagination here — only the HUD brackets and the growing text.
+        incomingBuffer += payload;
+        if (incomingBuffer.length() > MAX_MESSAGE_LEN) {
+          incomingBuffer = incomingBuffer.substring(0, MAX_MESSAGE_LEN);
+        }
+        readyMessage = incomingBuffer;
+        messageReady = true;
         break;
       default:
         // Unknown frame type - ignore, but reset buffer defensively.
@@ -237,247 +250,154 @@ void wrapText(const String &text, int maxCharsPerLine, String outLines[], int &l
 // ----------------------------------------------------------------------------
 // PUBLIC RENDERING API
 // ----------------------------------------------------------------------------
-// Displays arbitrary text inside the HUD frame, word-wrapped and paginated.
-// Handles long text by paging: each page is shown for `msPerPage`
-// milliseconds, then advances automatically. Call is blocking for the total
-// duration of all pages (kept short/interruptible via BLE poll inside loop).
-void displayMirroredText(const String &text) {
-  const int maxCharsPerLine = 21;   // ~128px / 6px per glyph at size 1
-  const int maxLinesPerPage = 4;    // lines available below the status bar
-  const int maxTotalLines   = 40;   // hard cap on wrapped lines
+// Live receiver view: only the corner brackets and the recognized text are
+// drawn. The newest lines stay visible so a long sentence behaves like a
+// scrolling HUD rather than a giant paragraph/page.
 
-  String lines[maxTotalLines];
+void renderReceivedText(const String &text) {
+  const int maxCharsPerLine = 21;
+  const int maxLines = 5;
+
+  String lines[24];
   int totalLines = 0;
-  wrapText(text, maxCharsPerLine, lines, totalLines, maxTotalLines);
-  if (totalLines == 0) {
-    lines[0] = "";
-    totalLines = 1;
-  }
+  wrapText(text, maxCharsPerLine, lines, totalLines, 24);
 
-  int totalPages = (totalLines + maxLinesPerPage - 1) / maxLinesPerPage;
-  if (totalPages < 1) totalPages = 1;
-
-  for (int page = 0; page < totalPages; page++) {
-    display.clearDisplay();
-    drawCornerBrackets();
-
-    char statusLabel[16];
-    if (totalPages > 1) {
-      snprintf(statusLabel, sizeof(statusLabel), "%d/%d", page + 1, totalPages);
-    } else {
-      snprintf(statusLabel, sizeof(statusLabel), "RX");
-    }
-    drawStatusBar(statusLabel);
-
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    int y = 16;
-    int firstLine = page * maxLinesPerPage;
-    int linesOnPage = min(maxLinesPerPage, totalLines - firstLine);
-    for (int i = 0; i < linesOnPage; i++) {
-      display.setCursor(4, y);
-      display.print(lines[firstLine + i]);
-      y += 12;
-    }
-
-    pushMirrored();
-
-    if (totalPages > 1 && page < totalPages - 1) {
-      // Give the BLE stack a chance to process while paging, and allow a
-      // new incoming message to interrupt paging early.
-      unsigned long pageStart = millis();
-      while (millis() - pageStart < 1400) {
-        if (messageReady) return; // new message takes priority
-        delay(20);
-      }
-    }
-  }
-}
-
-void showIdleHUD() {
   display.clearDisplay();
-  drawCornerBrackets();
-  drawStatusBar("ONLINE");
+  drawCornerBrackets(2, 8);
 
-  // Center crosshair, kept small so it doesn't dominate the frame.
-  int cx = SCREEN_WIDTH / 2;
-  int cy = 16 + (SCREEN_HEIGHT - 16) / 2;
-  display.drawCircle(cx, cy, 14, SSD1306_WHITE);
-  display.drawCircle(cx, cy, 2, SSD1306_WHITE);
-  display.drawFastHLine(cx - 20, cy, 10, SSD1306_WHITE);
-  display.drawFastHLine(cx + 10, cy, 10, SSD1306_WHITE);
-  display.drawFastVLine(cx, cy - 20, 10, SSD1306_WHITE);
-  display.drawFastVLine(cx, cy + 10, 10, SSD1306_WHITE);
+  if (totalLines == 0) {
+    pushMirrored();
+    return;
+  }
+
+  int firstLine = max(0, totalLines - maxLines);
+  int visible = min(maxLines, totalLines);
 
   display.setTextSize(1);
-  display.setCursor(4, SCREEN_HEIGHT - 10);
-  display.print("STANDBY");
+  display.setTextColor(SSD1306_WHITE);
+
+  for (int i = 0; i < visible; i++) {
+    display.setCursor(4, 13 + i * 10);
+    display.print(lines[firstLine + i]);
+  }
 
   pushMirrored();
 }
 
-// ----------------------------------------------------------------------------
-// INITIALIZING ANIMATION
-// ----------------------------------------------------------------------------
-// A short animated loading sequence used during boot: a rotating spinner
-// ring plus a filling progress bar. Every coordinate below is fixed and
-// chosen so the whole animation stays inside the 128x64 panel with margin
-// to spare — the spinner ring (center 64,33 / radius 9) sits clear of the
-// corner brackets above it and the progress bar below it, and the bar
-// itself (x:14..114, y:50..58) is well inside the 0..127 / 0..63 bounds.
-void initializingAnimation() {
-  const int titleY   = 14;             // "INITIALIZING" text row
-  const int spinCx    = SCREEN_WIDTH / 2;  // 64
-  const int spinCy    = 33;                // clear of title (ends ~y22) and bar (starts y50)
-  const int spinRadius = 9;                // ring extends y:24..42, x:55..73 — safely inside frame
-  const int barX = 14;
-  const int barY = 50;
-  const int barW = 100;                // 14 + 100 = 114, inside 128px width
-  const int barH = 8;                  // 50 + 8 = 58, inside 64px height
-  const int totalSteps = 24;
+// Compatibility wrapper for normal complete BLE messages.
+void displayMirroredText(const String &text) {
+  renderReceivedText(text);
+}
 
-  for (int step = 0; step < totalSteps; step++) {
-    display.clearDisplay();
-    drawCornerBrackets();
+void showIdleHUD() {
+  display.clearDisplay();
+  drawCornerBrackets(2, 8);
 
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(28, titleY);
-    display.print("INITIALIZING");
+  int cx = SCREEN_WIDTH / 2;
+  int cy = 34;
 
-    // Rotating spinner: 8 points evenly spaced on a ring. The point at the
-    // current rotation phase is drawn as a small filled dot (the "leading"
-    // point of motion); the rest are single pixels, which reads as a ring
-    // spinning around the center at a steady rate.
-    int activeDot = step % 8;
-    for (int i = 0; i < 8; i++) {
-      float angle = i * (2.0 * PI / 8.0);
-      int dx = spinCx + (int)round(cos(angle) * spinRadius);
-      int dy = spinCy + (int)round(sin(angle) * spinRadius);
-      if (i == activeDot) {
-        display.fillCircle(dx, dy, 2, SSD1306_WHITE);
-      } else {
-        display.drawPixel(dx, dy, SSD1306_WHITE);
-      }
-    }
+  display.drawCircle(cx, cy, 11, SSD1306_WHITE);
+  display.drawCircle(cx, cy, 2, SSD1306_WHITE);
+  display.drawFastHLine(cx - 23, cy, 10, SSD1306_WHITE);
+  display.drawFastHLine(cx + 14, cy, 10, SSD1306_WHITE);
+  display.drawFastVLine(cx, cy - 19, 8, SSD1306_WHITE);
+  display.drawFastVLine(cx, cy + 11, 8, SSD1306_WHITE);
 
-    // Progress bar frame + fill, advancing one step at a time.
-    display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
-    int fillW = map(step, 0, totalSteps - 1, 0, barW - 4);
-    if (fillW > 0) {
-      display.fillRect(barX + 2, barY + 2, fillW, barH - 4, SSD1306_WHITE);
-    }
-
-    pushMirrored();
-    delay(45);
-  }
+  pushMirrored();
 }
 
 // ----------------------------------------------------------------------------
 // BOOT ANIMATION
 // ----------------------------------------------------------------------------
+// Compact cinematic startup: scanner sweep -> EDITH lock-on -> HUD brackets.
+// It is intentionally fast so the glasses become usable quickly.
+
 void bootAnimation() {
-  // 1. Black screen
   display.clearDisplay();
   pushMirrored();
-  delay(200);
+  delay(120);
 
-  // 2. Scanning line sweep
-  for (int x = 0; x < SCREEN_WIDTH; x += 4) {
+  // 1. Fast vertical scanner with expanding side brackets.
+  for (int x = -8; x <= SCREEN_WIDTH + 8; x += 4) {
     display.clearDisplay();
-    display.drawFastVLine(x, 0, SCREEN_HEIGHT, SSD1306_WHITE);
-    pushMirrored();
-    delay(12);
-  }
-  display.clearDisplay();
-  pushMirrored();
 
-  // 3. "EDITH" logo
-  display.clearDisplay();
-  display.setTextSize(2);
-  display.setTextColor(SSD1306_WHITE);
-  int16_t x1, y1; uint16_t w, h;
-  display.getTextBounds("EDITH", 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - w) / 2, 20);
-  display.print("EDITH");
-  pushMirrored();
-  delay(700);
+    int left = max(2, x / 3);
+    int right = min(SCREEN_WIDTH - 3, SCREEN_WIDTH - 1 - x / 3);
+    display.drawFastVLine(x, 8, SCREEN_HEIGHT - 16, SSD1306_WHITE);
 
-  // 4. INITIALIZING — animated spinner + progress bar (see initializingAnimation()
-  // above; it self-contains all bounds so nothing here can draw off-screen).
-  initializingAnimation();
-
-  // 5 & 6. Expanding targeting reticle + crosshair
-  int cx = SCREEN_WIDTH / 2;
-  int cy = SCREEN_HEIGHT / 2;
-  for (int r = 2; r <= 22; r += 3) {
-    display.clearDisplay();
-    display.drawCircle(cx, cy, r, SSD1306_WHITE);
-    if (r >= 10) {
-      display.drawFastHLine(cx - r - 6, cy, 8, SSD1306_WHITE);
-      display.drawFastHLine(cx + r - 2, cy, 8, SSD1306_WHITE);
-      display.drawFastVLine(cx, cy - r - 6, 8, SSD1306_WHITE);
-      display.drawFastVLine(cx, cy + r - 2, 8, SSD1306_WHITE);
+    if (x > 8 && x < SCREEN_WIDTH - 8) {
+      display.drawFastHLine(8, 8, 18, SSD1306_WHITE);
+      display.drawFastHLine(SCREEN_WIDTH - 26, 8, 18, SSD1306_WHITE);
+      display.drawFastVLine(left, 8, 7, SSD1306_WHITE);
+      display.drawFastVLine(right, 8, 7, SSD1306_WHITE);
     }
-    pushMirrored();
-    delay(60);
-  }
-  delay(200);
 
-  // 7. Target lock flash (brief, non-excessive)
+    pushMirrored();
+    delay(10);
+  }
+
+  // 2. EDITH logo materializes with a horizontal scanline.
+  for (int phase = 0; phase < 10; phase++) {
+    display.clearDisplay();
+
+    display.setTextSize(2);
+    display.setTextColor(SSD1306_WHITE);
+    int16_t x1, y1;
+    uint16_t w, h;
+    display.getTextBounds("EDITH", 0, 0, &x1, &y1, &w, &h);
+    display.setCursor((SCREEN_WIDTH - w) / 2, 20);
+    display.print("EDITH");
+
+    int scanY = 14 + phase * 4;
+    display.drawFastHLine(18, scanY, 92, SSD1306_WHITE);
+
+    pushMirrored();
+    delay(35);
+  }
+
+  // 3. Target lock: ring expands, then collapses into the HUD center.
+  int cx = SCREEN_WIDTH / 2;
+  int cy = 34;
+
+  for (int r = 22; r >= 7; r -= 3) {
+    display.clearDisplay();
+    drawCornerBrackets(2, 8);
+    display.drawCircle(cx, cy, r, SSD1306_WHITE);
+    display.drawFastHLine(cx - r - 8, cy, 6, SSD1306_WHITE);
+    display.drawFastHLine(cx + r + 2, cy, 6, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy - r - 8, 6, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy + r + 2, 6, SSD1306_WHITE);
+    pushMirrored();
+    delay(45);
+  }
+
+  // 4. Brief lock flash.
+  display.clearDisplay();
+  drawCornerBrackets(2, 8);
   display.fillCircle(cx, cy, 3, SSD1306_WHITE);
   pushMirrored();
-  delay(150);
-  display.clearDisplay();
-  pushMirrored();
-  delay(100);
+  delay(90);
 
-  // 8. System checks
-  const char *checks[] = {"OPTICS", "AUDIO", "NETWORK", "CORE"};
-  for (int i = 0; i < 4; i++) {
+  display.clearDisplay();
+  drawCornerBrackets(2, 8);
+  display.drawCircle(cx, cy, 11, SSD1306_WHITE);
+  display.drawCircle(cx, cy, 2, SSD1306_WHITE);
+  pushMirrored();
+  delay(160);
+
+  // 5. Final HUD pulse.
+  for (int pulse = 0; pulse < 3; pulse++) {
     display.clearDisplay();
-    drawCornerBrackets();
-    display.setTextSize(1);
-    for (int j = 0; j <= i; j++) {
-      display.setCursor(10, 16 + j * 10);
-      display.print(checks[j]);
-      display.setCursor(100, 16 + j * 10);
-      display.print("OK");
-    }
+    drawCornerBrackets(2, 8);
+    int len = 8 + pulse * 3;
+    display.drawFastHLine(cx - len, cy, len - 2, SSD1306_WHITE);
+    display.drawFastHLine(cx + 2, cy, len - 2, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy - len, len - 2, SSD1306_WHITE);
+    display.drawFastVLine(cx, cy + 2, len - 2, SSD1306_WHITE);
     pushMirrored();
-    delay(220);
-  }
-  delay(300);
-
-  // 9. Data sync sweep
-  for (int i = 0; i < 3; i++) {
-    for (int x = 0; x < SCREEN_WIDTH; x += 8) {
-      display.clearDisplay();
-      drawCornerBrackets();
-      display.setTextSize(1);
-      for (int j = 0; j < 4; j++) {
-        display.setCursor(10, 16 + j * 10);
-        display.print(checks[j]);
-        display.setCursor(100, 16 + j * 10);
-        display.print("OK");
-      }
-      display.drawFastVLine(x, 12, SCREEN_HEIGHT - 12, SSD1306_WHITE);
-      pushMirrored();
-      delay(15);
-    }
+    delay(45);
   }
 
-  // 10. SYSTEM ONLINE
-  display.clearDisplay();
-  drawCornerBrackets();
-  display.setTextSize(1);
-  display.getTextBounds("SYSTEM ONLINE", 0, 0, &x1, &y1, &w, &h);
-  display.setCursor((SCREEN_WIDTH - w) / 2, 28);
-  display.print("SYSTEM ONLINE");
-  pushMirrored();
-  delay(700);
-
-  // 11. Final HUD
   showIdleHUD();
 }
 
@@ -511,7 +431,7 @@ void loop() {
   if (messageReady) {
     messageReady = false;
     String msg = readyMessage;
-    displayMirroredText(msg);
+    renderReceivedText(msg);
     lastIdleRefresh = millis();
   }
 
