@@ -14,12 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Ties BLE + speech together into a hands-free loop: as soon as the app is
- * opened and permissions are granted, it starts listening continuously,
- * and every time speech recognition finalizes a phrase it's sent to the
- * glasses automatically — no manual mic tap or send tap required. The mic
- * button in the UI now only pauses/resumes this loop; it's not a manual
- * one-shot trigger anymore.
+ * Hands-free EDITH loop: speech is automatically streamed to the glasses.
  */
 class EdithViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -38,17 +33,17 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
     private val _lastSentText = MutableStateFlow<String?>(null)
     val lastSentText: StateFlow<String?> = _lastSentText.asStateFlow()
 
-    /** True while the app should be auto-listening + auto-sending. False only when the user explicitly pauses via the mic button. */
     private val _autoModeEnabled = MutableStateFlow(true)
     val autoModeEnabled: StateFlow<Boolean> = _autoModeEnabled.asStateFlow()
 
-    /** Error codes worth silently retrying on — anything else (permissions, client errors) stops the loop instead of spinning forever. */
     private val recoverableErrorCodes = setOf(
         SpeechRecognizer.ERROR_NO_MATCH,
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
         SpeechRecognizer.ERROR_NETWORK,
         SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
-        SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+        SpeechRecognizer.ERROR_SERVER_DISCONNECTED,
+        SpeechRecognizer.ERROR_TOO_MANY_REQUESTS
     )
 
     private var autoStartedOnce = false
@@ -57,50 +52,47 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
     private var streamStarted = false
 
     init {
-        // Every time a phrase is finalized, send it to the glasses, then
-        // go straight back to listening for the next one.
         viewModelScope.launch {
             speechHelper.finalResults.collect { text ->
                 val remaining = if (streamStarted && text.startsWith(lastStreamedTranscript)) {
                     text.substring(lastStreamedTranscript.length)
                 } else text
+
                 if (remaining.isNotBlank()) {
                     bleManager.sendStreamingChunk(remaining, !streamStarted)
                     streamStarted = true
                 }
+
+                // ALWAYS queue END. The old implementation skipped this when
+                // the BLE queue happened to be empty, which could leave a
+                // one-chunk message permanently uncommitted on the glasses.
                 if (streamStarted) {
                     bleManager.finishStreaming()
-                } else if (text.isNotBlank()) {
-                    bleManager.sendText(text)
                 }
+
                 lastStreamedTranscript = text
                 _lastSentText.value = text
                 streamStarted = false
+
                 if (_autoModeEnabled.value) {
-                    delay(300) // let the recognizer fully tear down before relaunching it
+                    delay(650)
                     speechHelper.startListening()
                 }
             }
         }
 
-        // Recoverable errors (no speech detected, brief network hiccup) just
-        // restart listening automatically so the loop never goes silent.
         viewModelScope.launch {
             speechHelper.lastErrorCode.collect { code ->
                 if (code != null && _autoModeEnabled.value && code in recoverableErrorCodes) {
-                    delay(500)
-                    speechHelper.startListening()
+                    // Error 11 means the Android speech service disconnected.
+                    // Recreate the recognizer instead of getting stuck.
+                    delay(if (code == SpeechRecognizer.ERROR_SERVER_DISCONNECTED) 900 else 500)
+                    if (_autoModeEnabled.value) speechHelper.startListening()
                 }
             }
         }
     }
 
-    /**
-     * Called once from the UI as soon as required permissions are granted.
-     * Starts BLE auto-connect (if not already connected) and starts the
-     * continuous listen/transcribe/send loop. Safe to call more than once —
-     * it only actually kicks things off the first time.
-     */
     fun autoStart() {
         if (autoStartedOnce) return
         autoStartedOnce = true
@@ -115,7 +107,6 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         startStreamingPartialUpdates()
     }
 
-    /** Pauses the continuous loop — mic stops, and finalized/errored results no longer auto-restart listening. */
     fun pauseAuto() {
         _autoModeEnabled.value = false
         resetStreamingState()
@@ -123,7 +114,6 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         stopBackgroundService()
     }
 
-    /** Resumes the continuous loop after a manual pause. */
     fun resumeAuto() {
         _autoModeEnabled.value = true
         resetStreamingState()
@@ -132,15 +122,9 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         startStreamingPartialUpdates()
     }
 
-    fun connect() {
-        bleManager.startScan()
-    }
+    fun connect() = bleManager.startScan()
+    fun disconnect() = bleManager.disconnect()
 
-    fun disconnect() {
-        bleManager.disconnect()
-    }
-
-    /** Manual resend of whatever is currently in the transcript box (e.g. after a pause). */
     fun sendCurrentTranscript() {
         val text = transcript.value
         if (text.isBlank()) return
@@ -150,7 +134,6 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Sends arbitrary text (e.g. from a manual text field) to the glasses. */
     fun sendText(text: String) {
         if (text.isBlank()) return
         viewModelScope.launch {
@@ -181,7 +164,9 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
         if (streamingJob?.isActive == true) return
         streamingJob = viewModelScope.launch {
             speechHelper.partialResults.collect { current ->
-                if (!_autoModeEnabled.value || current.isBlank() || current == lastStreamedTranscript) return@collect
+                if (!_autoModeEnabled.value || current.isBlank() || current == lastStreamedTranscript) {
+                    return@collect
+                }
 
                 val suffix = if (streamStarted && current.startsWith(lastStreamedTranscript)) {
                     current.substring(lastStreamedTranscript.length)
