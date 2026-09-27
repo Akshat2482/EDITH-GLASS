@@ -24,7 +24,7 @@ android {
         targetSdk = 34
         versionCode = 5
         versionName = "1.4"
-        buildConfigField("String", "XAI_API_KEY", ""$xaiApiKey"")
+        buildConfigField("String", "XAI_API_KEY", "\"$xaiApiKey\"")
     }
 
     buildTypes {
