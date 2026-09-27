@@ -21,6 +21,21 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
     private val bleManager = BleManager(application)
     private val speechHelper = SpeechHelper(application)
     private val groqClient = GroqClient()
+    private val apiKeyManager = ApiKeyManager(application)
+
+    private val _hasApiKey = MutableStateFlow(apiKeyManager.hasGroqApiKey())
+    val hasApiKey: StateFlow<Boolean> = _hasApiKey.asStateFlow()
+
+    fun saveApiKey(key: String) {
+        if (key.isBlank()) return
+        apiKeyManager.saveGroqApiKey(key)
+        _hasApiKey.value = true
+    }
+
+    fun clearApiKey() {
+        apiKeyManager.clearGroqApiKey()
+        _hasApiKey.value = false
+    }
 
     val connectionState: StateFlow<ConnectionState> = bleManager.connectionState
     val bleStatusMessage: StateFlow<String> = bleManager.statusMessage
@@ -188,7 +203,7 @@ class EdithViewModel(application: Application) : AndroidViewModel(application) {
                 bleManager.sendText(thinking)
                 _lastSentText.value = thinking
 
-                val result = groqClient.ask(question)
+                val result = groqClient.ask(question, apiKeyManager.getGroqApiKey().orEmpty())
                 val answer = result.getOrElse { error ->
                     "JARVIS ERROR: " + (error.message ?: "Groq request failed")
                 }.take(512)
