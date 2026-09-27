@@ -51,7 +51,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 // Rough split between the physical yellow (top) and blue (bottom) regions
 // of the two-color OLED panel. Used only to keep primary UI elements inside
 // the zone that makes visual sense (status bar in yellow, body in blue).
-#define YELLOW_ZONE_HEIGHT 16
+#define YELLOW_ZONE_HEIGHT 18
 
 // ----------------------------------------------------------------------------
 // BLE CONFIG  —  see BLE_PROTOCOL.md for full protocol documentation
@@ -250,15 +250,20 @@ void wrapText(const String &text, int maxCharsPerLine, String outLines[], int &l
 // like a scrolling HUD rather than a giant paragraph/page.
 
 void drawReceivedTextAtOffset(String lines[], int totalLines, int offsetPx) {
-  const int maxLines = 5;
+  const int maxLines = 4;
+
+  // The top 18 pixels of this OLED are physically yellow. Keep that zone
+  // completely empty during transcription/answers. All received text lives
+  // strictly in the blue section below it.
+  const int textTop = YELLOW_ZONE_HEIGHT + 2;
 
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
 
   for (int i = 0; i < totalLines; i++) {
-    int y = 13 + i * 10 - offsetPx;
-    if (y >= 8 && y < SCREEN_HEIGHT) {
+    int y = textTop + i * 10 - offsetPx;
+    if (y >= textTop && y < SCREEN_HEIGHT) {
       display.setCursor(4, y);
       display.print(lines[i]);
     }
@@ -268,8 +273,8 @@ void drawReceivedTextAtOffset(String lines[], int totalLines, int offsetPx) {
 }
 
 void renderReceivedText(const String &text) {
-  const int maxCharsPerLine = 21;
-  const int maxLines = 5;
+  const int maxCharsPerLine = 20;
+  const int maxLines = 24;
 
   String lines[24];
   int totalLines = 0;
@@ -344,40 +349,64 @@ void showIdleHUD() {
 // ----------------------------------------------------------------------------
 // BOOT ANIMATION
 // ----------------------------------------------------------------------------
-// Compact cinematic startup: scanner sweep -> EDITH lock-on -> HUD brackets.
+// Cinematic startup: blue-style edge flash -> INITIALIZING progress -> EDITH lock-on -> HUD.
 // It is intentionally fast so the glasses become usable quickly.
 
 void bootAnimation() {
   int cx = SCREEN_WIDTH / 2;
-  int cy = 34;
+  int cy = 36;
 
-  // 1. Black -> central scan beam, like an optical HUD powering on.
+  // 1. EDITH powers up with blue-style perimeter flashes.
   display.clearDisplay();
   pushMirrored();
   delay(100);
 
-  for (int x = -8; x <= SCREEN_WIDTH + 8; x += 3) {
+  for (int flash = 0; flash < 2; flash++) {
     display.clearDisplay();
 
-    // Thin moving scan beam.
-    display.drawFastVLine(x, 7, 50, SSD1306_WHITE);
-    if (x > 8 && x < SCREEN_WIDTH - 8) {
-      display.drawFastVLine(x - 1, 18, 28, SSD1306_WHITE);
-      display.drawFastHLine(max(0, x - 18), cy, 36, SSD1306_WHITE);
-    }
-
-    // Small reticle ticks appear around the scan point.
-    int tx = constrain(x, 18, SCREEN_WIDTH - 19);
-    display.drawFastHLine(tx - 13, cy - 13, 7, SSD1306_WHITE);
-    display.drawFastHLine(tx + 6, cy - 13, 7, SSD1306_WHITE);
-    display.drawFastVLine(tx - 13, cy - 13, 7, SSD1306_WHITE);
-    display.drawFastVLine(tx + 13, cy - 13, 7, SSD1306_WHITE);
+    // Perimeter edge flash.
+    display.drawFastHLine(0, 0, SCREEN_WIDTH, SSD1306_WHITE);
+    display.drawFastHLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH, SSD1306_WHITE);
+    display.drawFastVLine(0, 0, SCREEN_HEIGHT, SSD1306_WHITE);
+    display.drawFastVLine(SCREEN_WIDTH - 1, 0, SCREEN_HEIGHT, SSD1306_WHITE);
 
     pushMirrored();
-    delay(8);
+    delay(45);
+
+    display.clearDisplay();
+    pushMirrored();
+    delay(35);
   }
 
-  // 2. EDITH identity appears behind a scanning line.
+  // 2. INITIALIZING... with a progress bar in the blue display area.
+  const int barX = 12;
+  const int barY = 48;
+  const int barW = 104;
+  const int barH = 7;
+
+  for (int progress = 0; progress <= 100; progress += 4) {
+    display.clearDisplay();
+
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(34, 21);
+    display.print("INITIALIZING...");
+
+    display.drawRect(barX, barY, barW, barH, SSD1306_WHITE);
+    int fillW = ((barW - 2) * progress) / 100;
+    if (fillW > 0) {
+      display.fillRect(barX + 1, barY + 1, fillW, barH - 2, SSD1306_WHITE);
+    }
+
+    // Small moving scan marker above the bar.
+    int markerX = barX + ((barW - 1) * progress) / 100;
+    display.drawFastVLine(markerX, 31, 10, SSD1306_WHITE);
+
+    pushMirrored();
+    delay(18);
+  }
+
+  // 3. EDITH identity appears behind a scanning line.
   for (int phase = 0; phase < 14; phase++) {
     display.clearDisplay();
 
@@ -397,7 +426,7 @@ void bootAnimation() {
     delay(25);
   }
 
-  // 3. Reticle acquires a target: expanding rings + four tracking ticks.
+  // 4. Reticle acquires a target: expanding rings + four tracking ticks.
   for (int r = 28; r >= 8; r -= 2) {
     display.clearDisplay();
 
@@ -413,7 +442,7 @@ void bootAnimation() {
     delay(35);
   }
 
-  // 4. Target lock flash.
+  // 5. Target lock flash.
   display.clearDisplay();
   display.fillCircle(cx, cy, 7, SSD1306_WHITE);
   display.drawCircle(cx, cy, 18, SSD1306_WHITE);
@@ -426,7 +455,7 @@ void bootAnimation() {
   pushMirrored();
   delay(70);
 
-  // 5. HUD settles into the live reticle.
+  // 6. HUD settles into the live reticle.
   for (int pulse = 0; pulse < 4; pulse++) {
     display.clearDisplay();
 
